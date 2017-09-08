@@ -1,0 +1,23 @@
+{
+  "name": "crowd_funding",
+  "description": "crowdfunding web api",
+  "homepage": "http://csse-s365.canterbury.ac.nz",
+  "keywords": [
+    "crowdfunding",
+    "api",
+    "application"
+  ],
+  "author": "Yuan Cui <ycu20@uclive.ac.nz>",
+  "main": "app.js",
+  "version": "0.0.1",
+  "dependencies": {
+    "async": "^2.5.0",
+    "body-parser": "^1.17.2",
+    "express": "^4.15.3",
+    "fs": "0.0.1-security",
+    "jwt-simple": "^0.5.1",
+    "moment": "^2.18.1",
+    "mysql": "^2.13.0",
+    "step": "^1.0.0"
+  }
+}
