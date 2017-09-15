@@ -2,28 +2,21 @@ const user = require('../models/user.server.models.js');
 const jwt = require('jwt-simple');
 const fs = require('fs');
 exports.view_all_current_project = function (req, res) {
-    user.get_all_project(function (result) {
-        let startIndex = req.query.startIndex;
-        if(startIndex == undefined){
-            startIndex = 0;
-        }
-        let count = req.query.count;
-        if (count == undefined){
-            count = result.length;
-        }
-        let result_str = '[';
-        for(let i=startIndex; i< startIndex+count; i++ ){
-            if(i >= result.length){
-                break;
+    var startIndex = req.query.startIndex;
+    var count = req.query.count;
+    // console.log(startIndex, count);
+    user.get_all_project(startIndex, count, function (err, result) {
+        if(err){
+            if(err.message == 'Unvalidated'){
+                res.status(400).send('Unvalidated');
             }
-            result_str += JSON.stringify(result[i]);
-            if(i<startIndex+count-1 && i < result.length-1){
-                result_str += ',';
-            }
+            console.log(err);
+            res.status(400).send('Malformed request');
+        }else{
+                res.status(200).json(result);
+
         }
-        result_str += ']';
-        // console.log(result_str);
-        res.json(JSON.parse(result_str));
+
     });
 };
 
@@ -34,9 +27,33 @@ exports.create_project = function (req, res) {
     let title = req.body.title;
     let subtitle =req.body.subtitle;
     let desc = req.body.description;
+    //if imageUri cannot be used, change it to default one.
     let imageUri = req.body.imageUri;
+    try{
+        fs.readFile(uri, "binary");
+    }
+    catch (err){
+        imageUri = "./image/default.jpg";
+    };
     let target = req.body.target;
     let creators=req.body.creators;
+    if(creators[0] == undefined){
+        return res.status(400).send('Malformed project data');
+    }else {
+        //check if there is any same id in creators block
+        let check = [];
+        for (let creator of creators){
+            let creator_id = creator["id"];
+            check.push(creator_id);
+        }
+        let check1 = check.sort();
+        for (let i =0; i<check1.length -1; i++){
+            if(check1[i] == check1[i+1]){
+                return res.status(400).send('Creator id cannot be same');
+            }
+        }
+
+    }
     let rewards = req.body.rewards;
     let project_data = {
         "title" : title,
@@ -61,7 +78,18 @@ exports.create_project = function (req, res) {
 
 exports.view_project_detail = function (req, res) {
     let pro_id = req.params.pro_id;
-    user.get_a_project(pro_id, function (err, result) {
+    let token;
+    let decoded;
+    let login_id = -1;
+    try{
+        token = req.get('X-Authorization');
+        decoded = jwt.decode(token, '123456789');
+        login_id = decoded.iss;
+        console.log('login user' + login_id);
+    }catch(err){
+        console.log('unlogin user');
+    }
+    user.get_a_project(pro_id, login_id, function (err, result) {
   //      console.log(result);
         if(err){
             res.status(404).send('Not found');
@@ -108,15 +136,21 @@ exports.view_project_image = function (req, res) {
     });
 };
 
+/*
+WARNING: YOU MUST REPLACE THE PATH OF UPLOADING URI TO YOUR OWN!!!!
+ */
 exports.update_project_image = function (req, res) {
     let pro_id = req.params.pro_id;
     let token = req.get('X-Authorization');
     let decoded = jwt.decode(token, '123456789');
     let login_id = decoded.iss;
-    fs.readFile('F:/image.JPG', 'binary', function (err, result1) {
+    //WARNING:
+    //the uploading uri should be set by your self!!!!
+    let uploadingUri = 'F:/image.JPG';
+    fs.readFile(uploadingUri, 'binary', function (err, result1) {
         if(err){
             console.log(err);
-            res.status(400).send('Malformed request');
+            res.status(400).send('CHECK YOUR UPLOADING PATH');
         }else{
            // console.log(result1);
             user.update_image(pro_id, login_id, result1, function (err, result) {
@@ -139,16 +173,19 @@ exports.update_project_image = function (req, res) {
 
 exports.pledge_to_project = function (req, res) {
     let pro_id = req.params.pro_id;
-    let ple_id = req.body.id;
     let amount = req.body.amount;
     let anonymous = req.body.anonymous;
+    //because this token can be get from client side
+    //I do not do any encoding and decoding
+    if(req.body.card == undefined){
+        res.status(400).send('Bad user, project, or pledge details');
+    }
     let auth_token = req.body.card.authToken;
     let token = req.get('X-Authorization');
     let decoded = jwt.decode(token, '123456789');
     let login_id = decoded.iss;
     let data ={
         "pro_id": pro_id,
-        "ple_id": ple_id,
         "amount": amount,
         "anonymous": anonymous,
         "auth_token": auth_token,
@@ -192,23 +229,31 @@ exports.update_project_rewards = function (req, res) {
     let decoded = jwt.decode(token, '123456789');
     let login_id = decoded.iss;
     let pro_id = req.params.pro_id;
-    let bodys = req.body;
+    let bodies = req.body;
     let rewards = [];
-    for(let body of bodys){
-        let rew_id = body.id;
-        let rew_amount = body.amount;
-        let rew_desc = body.description;
-        let reward = [rew_id, rew_amount, rew_desc];
-        rewards.push(reward);
+
+    if(bodies[0] != undefined) {
+        for (let body of bodies) {
+            let rew_id = body.id;
+            let rew_amount = body.amount;
+            let rew_desc = body.description;
+            let reward = [rew_id, rew_amount, rew_desc];
+            rewards.push(reward);
+        }
+    }else{
+        res.status(400).send('Malformed request');
     }
     user.update_rewards(login_id, pro_id, rewards, function (err, result) {
         if(err){
+            console.log(err);
             if(err.message==404){
                 res.status(404).send('Not found');
             }else if(err.message == 403){
                 res.status(403).send('Forbidden - unable to update a project you do not own');
+            }else if(err.message == 'rew_id'){
+                return res.status(403).send('wrong reward id');
             }else{
-                res.status(400).send('Malformed request');
+                return res.status(400).send('Malformed request');
             }
         }else{
             res.status(200).send(result);
@@ -217,6 +262,10 @@ exports.update_project_rewards = function (req, res) {
 }
 
 exports.create_user = function (req, res) {
+    let use = req.body.user;
+    if(use == undefined){
+        res.status(400).send('Malformed request');
+    }
     let name = req.body.user.username;
     let pwd = req.body.password;
     let location = req.body.user.location;
@@ -251,6 +300,8 @@ exports.login = function (req, res) {
             }
             else if(err.message == 'invisible'){
                 res.status(400).send('User has been deleted');
+            }else if(err.message == 'login'){
+                res.status(400).send('login already');
             }else{
                 res.status(400).send('Malformed request');
             }
@@ -317,6 +368,8 @@ exports.update_user = function (req, res) {
                 res.status(403).send('Forbidden - account not owned');
             }else if(err.message ==404){
                 res.status(404).send('User not found');
+            }else if(err.message =='sameuser'){
+                res.status(400).send('User name has been occupied');
             }else{
                 res.status(400).send('Malformed request');
             }
@@ -337,8 +390,8 @@ exports.delete_user = function (req, res) {
                 res.status(403).send('Forbidden - account not owned');
             }else if(err.message==404){
                 res.status(404).send('User not found');
-            }else if(err.message == 'last_creator'){
-                res.status(400).send('Cannot delete use because it is last creator of project');
+            }else if(err.message == 'lastcreator'){
+                res.status(400).send('Cannot delete user because it is last creator of project');
             }else{
                 res.status(400).send('Malformed request');
             }
